@@ -1,11 +1,16 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Moq;
 using Moq.Protected;
 using NUnit.Framework;
+using SimpleGraphQLClient.UnitTests.TestObjects;
+using Tests.TestObjects;
+using SimpleGraphQLClient.Extensions;
+
 
 namespace Tests
 {
@@ -16,14 +21,8 @@ namespace Tests
     //GraphQL Fragile Endpoint:https://fakeql.com/fragilegraphql/8085b4e0c4f41b997bda34805bc006dd
     //Rest Endpoint: https://fakeql.com/rest/8085b4e0c4f41b997bda34805bc006dd
 
-    public class User
-    {
-        public string Id { get; set; }
-        public string FirstName { get; set; }
-    }
-
     [TestFixture]
-    public class Tests
+    public class SimpleGraphQLClientTest
     {
         [SetUp]
         public void Setup()
@@ -50,15 +49,15 @@ namespace Tests
                     Content = new StringContent("{\"data\": {\"user\": {\"id\": \"1\",\"firstname\": \"Mike\"}}}"),
                 })
                 .Verifiable();
-            
+
             using (var client = new SimpleGraphQLClient.SimpleGraphQLClient(new HttpClient(handlerMock.Object)))
             {
                 client.ServiceUrl = "https://fakeql.com/rest/8085b4e0c4f41b997bda34805bc006dd";
                 client.OperationName = "getElement";
-                client.Parameters.Add("id",16);
+                client.Parameters.Add("id", 16);
                 var result = client.Post<User>();
                 Assert.IsNotNull(result);
-                Assert.AreEqual("Mike",result.FirstName);
+                Assert.AreEqual("Mike", result.FirstName);
             }
             Assert.Pass();
         }
@@ -69,29 +68,13 @@ namespace Tests
             using (var client = new SimpleGraphQLClient.SimpleGraphQLClient())
             {
                 client.OperationName = "getElement";
-                client.Parameters.Add("id",16);
-
-                var ex = Assert.Throws<ApplicationException>(() =>
-                {
-                    var result = client.Post<User>();
-                });
-                Assert.AreEqual("ServiceUrl is required!",ex.Message);
-            }
-        }
-
-        [Test]
-        public void TestOperationNameNotSet()
-        {
-            using (var client = new SimpleGraphQLClient.SimpleGraphQLClient())
-            {
-                client.ServiceUrl = "http://example.com/";
                 client.Parameters.Add("id", 16);
 
                 var ex = Assert.Throws<ApplicationException>(() =>
                 {
                     var result = client.Post<User>();
                 });
-                Assert.AreEqual("OperationName is required!", ex.Message);
+                Assert.AreEqual("ServiceUrl is required!", ex.Message);
             }
         }
 
@@ -102,11 +85,58 @@ namespace Tests
             {
                 client.ServiceUrl = "https://fakeql.com/rest/8085b4e0c4f41b997bda34805bc006dd";
                 client.OperationName = "user";
-                client.Parameters.Add("id","1");
+                client.Parameters.Add("id", "1");
                 var result = client.Post<User>();
-                Assert.AreEqual("Mike",result.FirstName);
+                Assert.AreEqual("Mike", result.FirstName);
             }
         }
+        [Test]
+        public void Extensions_OutputParameters_WithFullObject()
+        {
+            //Arrange
+            string expected = " { Status Username Debt Id Address { HouseNumber Street ZipCode { ISO Format StreetLevelFormat CountryId } } }";
+            StringBuilder builder = new StringBuilder();
+            var type = typeof(UserFull);
+            //Act
+            string actual = builder.Append(type.OutputParameters()).ToString();
+            //Assert
+            Assert.AreEqual(expected, actual);
+        }
+        [Test]
+        public void Extensions_OutputParamters_ObjectWithGenericType()
+        {
+            //Arrange
+            string expected = " { Status Username Debt Id Addresses { HouseNumber Street ZipCode { ISO Format StreetLevelFormat CountryId } } }";
+            StringBuilder builder = new StringBuilder();
+            var type = typeof(UserFullWithGenericType);
+            //Act
+            string actual = builder.Append(type.OutputParameters()).ToString();
+            //Assert
+            Assert.AreEqual(expected, actual);
+        }
 
+        [Test]
+        public void Extensions_OutputParamters_IgnoresEmptyComplexProperty()
+        {
+            //Arrange
+            string expected = " { Id }";
+            StringBuilder builder = new StringBuilder();
+            var type = typeof(UserWithEmptyClass);
+            //Act
+            string actual = builder.Append(type.OutputParameters()).ToString();
+            //Assert
+            Assert.AreEqual(expected, actual);
+        }
+        [Test]
+        public void Extensions_ToCamelCase()
+        {
+            string expected = "{ status username debt id address { houseNumber street zipCode { ISO format streetLevelFormat countryId } } }";
+            StringBuilder builder = new StringBuilder();
+            var type = typeof(UserFull);
+            //Act
+            string actual = builder.Append(type.OutputParameters()).ToString().ToCamelCase();
+            //Assert
+            Assert.AreEqual(expected, actual);
+        }
     }
 }

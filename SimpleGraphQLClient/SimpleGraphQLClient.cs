@@ -1,20 +1,24 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using SimpleGraphQLClient.Extensions;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace SimpleGraphQLClient
 {
     // ReSharper disable once InconsistentNaming
-    public class SimpleGraphQLClient:ISimpleGraphQLClient,IDisposable
+    public class SimpleGraphQLClient : ISimpleGraphQLClient, IDisposable
     {
-        private HttpClient _httpClient = null;
+        private readonly StringBuilder _graphQlStringBuilder = new StringBuilder();
+        private HttpClient _httpClient;
 
-        public SimpleGraphQLClient() { }
+        public SimpleGraphQLClient()
+        {
+        }
 
         public SimpleGraphQLClient(HttpClient httpClient, string url = null)
         {
@@ -27,38 +31,43 @@ namespace SimpleGraphQLClient
             ServiceUrl = url;
         }
 
-        public string ServiceUrl { get; set; }
         public string OperationName { get; set; }
         public Dictionary<string, object> Parameters { get; set; } = new Dictionary<string, object>();
-        private readonly StringBuilder _graphQlStringBuilder = new StringBuilder();
+        public string ServiceUrl { get; set; }
+
+        public void Dispose()
+        {
+            OperationName = null;
+            Parameters = null;
+            _httpClient = null;
+        }
 
         public T Post<T>()
         {
-            if (string.IsNullOrWhiteSpace(this.OperationName))
-            {
-                throw new ApplicationException("OperationName is required!");
-            }
-
-            if (string.IsNullOrWhiteSpace(this.ServiceUrl))
+            if (string.IsNullOrWhiteSpace(ServiceUrl))
             {
                 throw new ApplicationException("ServiceUrl is required!");
             }
 
-            if(_httpClient == null)
+            if (_httpClient == null)
                 _httpClient = new HttpClient();
 
             _httpClient.BaseAddress = new Uri(ServiceUrl);
+
             Builder<T>();
-            var requestBody = JsonConvert.SerializeObject(new {query = _graphQlStringBuilder.ToString()});
+            var query = _graphQlStringBuilder.ToString();
+            var t = new { query };
+            var json = JsonConvert.SerializeObject(t);
             var response = _httpClient.PostAsync("",
-                new StringContent(requestBody, Encoding.UTF8, "application/json")).Result;
+                new StringContent(json, Encoding.UTF8, "application/json")).Result;
 
             var content = response.Content.ReadAsStringAsync().Result;
 
             var jObject = JObject.Parse(content);
-            if (jObject["data"] != null && jObject["data"].HasValues)
+            if (jObject["data"]?.HasValues == true)
             {
                 var data = jObject["data"].Children().First().First();
+                var string1 = data.ToString();
                 return JsonConvert.DeserializeObject<T>(data.ToString());
             }
 
@@ -68,8 +77,8 @@ namespace SimpleGraphQLClient
         private void AddQueryParameter()
         {
             string pad = new string(' ', 0);
-            _graphQlStringBuilder.Append(pad + $"{OperationName}");
-            if (Parameters != null && Parameters.Any())
+            _graphQlStringBuilder.Append(pad).Append(OperationName);
+            if (Parameters?.Count > 0)
             {
                 _graphQlStringBuilder.Append("(");
                 List<string> parameterStringList = new List<string>();
@@ -82,12 +91,11 @@ namespace SimpleGraphQLClient
                     else if (IsList(p.Value))
                     {
                         var list = (List<string>)p.Value;
-                        if (list.First() is string)
+                        if (list[0] is string)
                         {
                             var pString = string.Join("\",\"", list);
                             parameterStringList.Add($"{p.Key}:[\"{pString}\"]");
                         }
-
                     }
                     else
                     {
@@ -99,38 +107,25 @@ namespace SimpleGraphQLClient
             }
         }
 
-        private bool IsList(object o)
-        {
-
-            if (o == null) return false;
-            Type[] types = { typeof(String), typeof(int[]),
-                typeof(ArrayList), typeof(Array)};
-
-            if(types.Contains(o.GetType()) ||(o is IList &&
-                   o.GetType().IsGenericType &&
-                   o.GetType().GetGenericTypeDefinition().IsAssignableFrom(typeof(List<>))))
-            {
-                return true;
-            }
-            return false;
-        }
-
         private void Builder<T>()
         {
             _graphQlStringBuilder.Append("query {");
             AddQueryParameter();
-            _graphQlStringBuilder.Append(typeof(T).OutputParameters().ToLower());
+            _graphQlStringBuilder.Append(typeof(T).OutputParameters().ToCamelCase());
             _graphQlStringBuilder.Append("}");
         }
 
-        public void Dispose()
+        private bool IsList(object o)
         {
-            OperationName = null;
-            Parameters = null;
-            _httpClient = null;
+            if (o == null) return false;
+            Type[] types = { typeof(string), typeof(int[]),
+                typeof(ArrayList), typeof(Array)};
+
+            return types.Contains(o.GetType()) || (o is IList
+                   && o.GetType().IsGenericType
+                   && o.GetType().GetGenericTypeDefinition().IsAssignableFrom(typeof(List<>)));
         }
     }
-
 
     // ReSharper disable once InconsistentNaming
 }
